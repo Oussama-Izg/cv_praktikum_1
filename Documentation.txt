@@ -1,0 +1,8 @@
+1. Bild aufnehmen
+2. Bild laden und in Graustufen umwandeln
+3. Bild weichzeichnen um Rauschen zu reduzieren
+4. Binarisieren (Schwellwertbildung)
+5. Morphologische Operationen (Opening/Closing)
+6. Konturen finden und Objekt ausmessen
+7. Pixel zu Millimeter umrechnen
+8. Messfehler dokumentieren
