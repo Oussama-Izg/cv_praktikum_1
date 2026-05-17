@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from helper import find_inbus_contour
 
-img = cv2.imread("bilder/image_1.jpg")
+img = cv2.imread("bilder/image_2.jpg")
 # Bild in Graustufen umwandeln
 imgInGrey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
@@ -20,15 +20,13 @@ _, imgBinary = cv2.threshold(imgBlurred, 110, 255, cv2.THRESH_BINARY)
 #cv2.destroyAllWindows()
 
 
-kernel = np.ones((7, 7), np.uint8)
+kernel = np.ones((5, 5), np.uint8)
 
 #Dilatation → Erosion: schließt Löcher im Objekt
-imgClean = cv2.morphologyEx(imgBinary, cv2.MORPH_CLOSE, kernel, iterations=3)
+imgClean = cv2.morphologyEx(imgBinary, cv2.MORPH_CLOSE, kernel, iterations=2)
 
 #Erosion → Dilatation: entfernt Rauschen (weiße Punkte)
-imgClean = cv2.morphologyEx(imgClean, cv2.MORPH_OPEN, kernel, iterations=3)
-
-edges = cv2.Canny(imgBlurred, 50, 150)
+imgClean = cv2.morphologyEx(imgClean, cv2.MORPH_OPEN, kernel, iterations=1)
 
 #cv2.imshow("Clean Image", imgClean)
 #cv2.waitKey(0)
@@ -60,6 +58,11 @@ secondary_axis = eigenvectors[1]
 angle = np.arctan2(main_axis[1], main_axis[0])
 angle_deg = np.degrees(angle)
 
+if angle_deg < -90:
+    angle_deg += 180
+elif angle_deg > 90:
+    angle_deg -= 180
+
 # Debug-Bild
 debug = img.copy()
 
@@ -85,7 +88,7 @@ cv2.line(debug, (cx, cy), (x1, y1), (0, 255, 0), 3)
 cv2.line(debug, (cx, cy), (x2, y2), (255, 0, 0), 3)
 
 # Kontur zeichnen
-cv2.drawContours(debug, [inbus_contour], -1, (0, 255, 255), 2)
+cv2.drawContours(debug, [inbus_contour], -1, (255, 255, 0), 4)
 
 print(f"Winkel: {angle_deg:.2f} Grad")
 
