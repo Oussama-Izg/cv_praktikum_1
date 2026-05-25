@@ -1,109 +1,111 @@
 import cv2
-import numpy as np
-from helper import find_inbus_contour
 
-img = cv2.imread("bilder/image_2.jpg")
-# Bild in Graustufen umwandeln
-imgInGrey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-
-# Bild weichzeichnen um Rauschen zu reduzieren
-imgBlurred = cv2.GaussianBlur(imgInGrey, (7, 7), 0)
-
-# Binarisieren (Schwellwertbildung)
-#_, imgBinary = cv2.threshold(imgBlurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-#imgBinary = cv2.adaptiveThreshold(imgBlurred,255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 4)
-#imgBinary = cv2.bitwise_not(imgBinary)
-_, imgBinary = cv2.threshold(imgBlurred, 110, 255, cv2.THRESH_BINARY)
-
-#cv2.imshow("Binary Image", imgBinary)
-#cv2.waitKey(0)
-#cv2.destroyAllWindows()
-
-
-kernel = np.ones((5, 5), np.uint8)
-
-#Dilatation → Erosion: schließt Löcher im Objekt
-imgClean = cv2.morphologyEx(imgBinary, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-#Erosion → Dilatation: entfernt Rauschen (weiße Punkte)
-imgClean = cv2.morphologyEx(imgClean, cv2.MORPH_OPEN, kernel, iterations=1)
-
-#cv2.imshow("Clean Image", imgClean)
-#cv2.waitKey(0)
-#cv2.destroyAllWindows()
-
-# Konturen finden
-contours, _ = cv2.findContours(imgClean, cv2.RETR_EXTERNAL,
-                                cv2.CHAIN_APPROX_SIMPLE)
-
-inbus_contour = find_inbus_contour(contours)
-
-if inbus_contour is None:
-    exit()
-
-# Konturpunkte extrahieren
-data_pts = np.squeeze(inbus_contour).astype(np.float32)
-
-# PCA berechnen
-mean, eigenvectors, eigenvalues = cv2.PCACompute2(
-    data_pts,
-    mean=np.array([])
+from bemessung import (
+    create_debug_images,
+    detect_coin_by_contours,
+    detect_coin_by_hough,
+    detect_inbus_box,
+    hough_line,
+    measure_dimensions_by_hough,
+    measure_dimensions_by_contours,
+)
+from vorverarbeitung import (
+    build_preprocessing_result,
+    blur_gray,
+    clean_binary,
+    convert_to_gray,
+    convert_to_rgb,
+    create_edges,
+    load_image,
+    threshold_otsu,
 )
 
-# Hauptachse bestimmen
-center = mean[0]
-main_axis = eigenvectors[0]
-secondary_axis = eigenvectors[1]
 
-angle = np.arctan2(main_axis[1], main_axis[0])
-angle_deg = np.degrees(angle)
-
-if angle_deg < -90:
-    angle_deg += 180
-elif angle_deg > 90:
-    angle_deg -= 180
-
-# Debug-Bild
-debug = img.copy()
-
-# Mittelpunkt zeichnen
-cx, cy = int(center[0]), int(center[1])
-cv2.circle(debug, (cx, cy), 8, (0, 0, 255), -1)
-
-# Länge der Achsen für Darstellung
-scale = 150
-
-# Hauptachse
-x1 = int(cx + main_axis[0] * scale)
-y1 = int(cy + main_axis[1] * scale)
-
-# Nebenachse
-x2 = int(cx + secondary_axis[0] * scale)
-y2 = int(cy + secondary_axis[1] * scale)
-
-# Hauptachse zeichnen (grün)
-cv2.line(debug, (cx, cy), (x1, y1), (0, 255, 0), 3)
-
-# Nebenachse zeichnen (blau)
-cv2.line(debug, (cx, cy), (x2, y2), (255, 0, 0), 3)
-
-# Kontur zeichnen
-cv2.drawContours(debug, [inbus_contour], -1, (255, 255, 0), 4)
-
-print(f"Winkel: {angle_deg:.2f} Grad")
-
-cv2.imshow("PCA Analyse", debug)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-
-"""
-# Debug
-debug = img.copy()
-cv2.drawContours(debug, contours, -1, (0, 255, 0), 1)   # alle grün
-cv2.drawContours(debug, [inbus_contour], -1, (0, 0, 255), 3)    # Inbus rot
-cv2.imshow("Erkannter Inbus", debug)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-"""
+IMAGE_PATH = "bilder/nrw/1.jpg"
 
 
+def create_config():
+    return {
+        "COIN_DIAMETER_MM": 22.25,
+        "CONTOUR_COIN_MIN_AREA": 200,
+        "CONTOUR_INBUS_MIN_AREA": 500,
+        "HOUGH_CIRCLE_DP": 1.2,
+        "HOUGH_CIRCLE_MIN_DIST_RATIO": 0.20,
+        "HOUGH_CIRCLE_PARAM1": 100,
+        "HOUGH_CIRCLE_PARAM2": 30,
+        "HOUGH_CIRCLE_MIN_RADIUS_RATIO": 0.03,
+        "HOUGH_CIRCLE_MAX_RADIUS_RATIO": 0.12,
+        "HOUGH_MIN_LINE_LENGTH_RATIO": 0.04,
+        "HOUGH_THRESHOLD": 35,
+        "HOUGH_MAX_LINE_GAP": 160,
+        "ANGLE_TOLERANCE_DEG": 15,
+        "RIGHT_ANGLE_TOLERANCE_DEG": 20,
+        "MAX_RIGHT_ANGLE_DISTANCE_PX": 120,
+        "EXTEND_LINE_ANGLE_TOLERANCE_DEG": 15,
+        "EXTEND_LINE_DISTANCE_TOLERANCE_PX": 90,
+    }
+
+
+def print_vorverarbeitung(preprocessing):
+    cv2.imwrite("output_vorverarbeitung.png", preprocessing.edges)
+
+
+def print_bemessung_debug(debug_images):
+    cv2.imwrite("output_bemessung_debug.png", debug_images.all_lines_debug)
+
+
+def print_bemessung(debug_images):
+    cv2.imwrite("output_bemessung.png", debug_images.result_debug)
+
+
+def print_hough_line_infos(line_detection, dimension_result):
+    print(f"Gefundene Hough-Linien: {0 if line_detection.lines is None else len(line_detection.lines)}")
+    print(f"Kandidaten nach Laengenfilter: {len(line_detection.line_candidates)}")
+    print(f"Verwendete Aussenkanten: {len(line_detection.outer_edges)}")
+    print(f"Winkel zwischen den Kanten: {dimension_result.angle_difference_deg:.2f} Grad")
+    print(f"Abstand zwischen den Kanten: {line_detection.edge_distance_px:.2f} px")
+
+
+def print_abmessungen(dimension_result):
+    print(f"Laenge: {dimension_result.length_mm:.2f} mm")
+    print(f"Breite: {dimension_result.width_mm:.2f} mm")
+
+
+def main():
+    config = create_config()
+
+    # Vorverarbeitung
+    img = load_image(IMAGE_PATH)
+    img_rgb = convert_to_rgb(img)
+    gray = convert_to_gray(img)
+    blurred = blur_gray(gray)
+    binary = threshold_otsu(blurred)
+    clean = clean_binary(binary)
+    edges = create_edges(clean)
+    preprocessing = build_preprocessing_result(IMAGE_PATH, img, img_rgb, gray, blurred, binary, clean, edges)
+
+    # Bemessung
+    #coin_detection = detect_coin_by_hough(preprocessing, config)
+    coin_detection = detect_coin_by_contours(preprocessing, config)
+
+    ## hough
+    #line_detection = hough_line(preprocessing, config)
+    #dimension_result = measure_dimensions_by_hough(line_detection, coin_detection, config)
+    
+    ## by_contours
+    line_detection = detect_inbus_box(preprocessing, coin_detection, config)
+    dimension_result = measure_dimensions_by_contours(preprocessing, coin_detection, config)
+
+    debug_images = create_debug_images(preprocessing, coin_detection, line_detection)
+
+    # Ausgabe
+    print_vorverarbeitung(preprocessing)
+    print_bemessung_debug(debug_images)
+    print_bemessung(debug_images)
+    ## Print-Outputs
+    print_hough_line_infos(line_detection, dimension_result)
+    print_abmessungen(dimension_result)
+
+
+if __name__ == "__main__":
+    main()
