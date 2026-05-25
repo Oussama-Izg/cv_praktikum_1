@@ -1,6 +1,8 @@
+from pathlib import Path
+
 import cv2
 
-from bemessung import (
+from logik.bemessung import (
     create_debug_images,
     detect_coin_by_contours,
     detect_coin_by_hough,
@@ -9,7 +11,7 @@ from bemessung import (
     measure_dimensions_by_hough,
     measure_dimensions_by_contours,
 )
-from vorverarbeitung import (
+from logik.vorverarbeitung import (
     build_preprocessing_result,
     blur_gray,
     clean_binary,
@@ -21,7 +23,13 @@ from vorverarbeitung import (
 )
 
 
-IMAGE_PATH = "bilder/nrw/1.jpg"
+IMAGE_PATH = "bilder/1.jpg"
+OUTPUT_DIR = Path("output")
+
+
+def save_image(filename, image):
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    cv2.imwrite(str(OUTPUT_DIR / filename), image)
 
 
 def create_config():
@@ -47,15 +55,15 @@ def create_config():
 
 
 def print_vorverarbeitung(preprocessing):
-    cv2.imwrite("output_vorverarbeitung.png", preprocessing.edges)
+    save_image("vorverarbeitung.png", preprocessing.edges)
 
 
 def print_bemessung_debug(debug_images):
-    cv2.imwrite("output_bemessung_debug.png", debug_images.all_lines_debug)
+    save_image("bemessung_debug.png", debug_images.all_lines_debug)
 
 
 def print_bemessung(debug_images):
-    cv2.imwrite("output_bemessung.png", debug_images.result_debug)
+    save_image("bemessung.png", debug_images.result_debug)
 
 
 def print_hough_line_infos(line_detection, dimension_result):
@@ -89,12 +97,12 @@ def main():
     coin_detection = detect_coin_by_contours(preprocessing, config)
 
     ## hough
-    #line_detection = hough_line(preprocessing, config)
-    #dimension_result = measure_dimensions_by_hough(line_detection, coin_detection, config)
+    line_detection = hough_line(preprocessing, config)
+    dimension_result = measure_dimensions_by_hough(line_detection, coin_detection, config)
     
     ## by_contours
-    line_detection = detect_inbus_box(preprocessing, coin_detection, config)
-    dimension_result = measure_dimensions_by_contours(preprocessing, coin_detection, config)
+    #line_detection = detect_inbus_box(preprocessing, coin_detection, config)
+    #dimension_result = measure_dimensions_by_contours(preprocessing, coin_detection, config)
 
     debug_images = create_debug_images(preprocessing, coin_detection, line_detection)
 
