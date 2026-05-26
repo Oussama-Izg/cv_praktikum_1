@@ -9,7 +9,6 @@ import numpy as np
 class PreprocessingResult:
     image_path: str
     img: np.ndarray
-    img_rgb: np.ndarray
     gray: np.ndarray
     blurred: np.ndarray
     binary: np.ndarray
@@ -22,10 +21,6 @@ def load_image(image_path):
     if img is None:
         raise FileNotFoundError(f"Bild nicht gefunden: {image_path}")
     return img
-
-
-def convert_to_rgb(img):
-    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 
 def convert_to_gray(img):
@@ -61,7 +56,6 @@ def save_preprocessing(result, output_path):
     np.savez_compressed(
         output_path,
         img=result.img,
-        img_rgb=result.img_rgb,
         gray=result.gray,
         blurred=result.blurred,
         binary=result.binary,
@@ -72,11 +66,10 @@ def save_preprocessing(result, output_path):
     return Path(output_path)
 
 
-def build_preprocessing_result(image_path, img, img_rgb, gray, blurred, binary, clean, edges):
+def build_preprocessing_result(image_path, img, gray, blurred, binary, clean, edges):
     return PreprocessingResult(
         image_path=image_path,
         img=img,
-        img_rgb=img_rgb,
         gray=gray,
         blurred=blurred,
         binary=binary,
@@ -87,14 +80,13 @@ def build_preprocessing_result(image_path, img, img_rgb, gray, blurred, binary, 
 
 def run_preprocessing(image_path, output_path=None):
     img = load_image(image_path)
-    img_rgb = convert_to_rgb(img)
     gray = convert_to_gray(img)
     blurred = blur_gray(gray)
     binary = threshold_otsu(blurred)
     clean = clean_binary(binary)
     edges = create_edges(clean)
 
-    result = build_preprocessing_result(image_path, img, img_rgb, gray, blurred, binary, clean, edges)
+    result = build_preprocessing_result(image_path, img, gray, blurred, binary, clean, edges)
 
     if output_path is not None:
         save_preprocessing(result, output_path)

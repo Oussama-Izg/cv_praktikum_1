@@ -16,7 +16,6 @@ from logik.vorverarbeitung import (
     blur_gray,
     clean_binary,
     convert_to_gray,
-    convert_to_rgb,
     create_edges,
     load_image,
     threshold_otsu,
@@ -45,7 +44,7 @@ def create_config():
         "HOUGH_CIRCLE_MAX_RADIUS_RATIO": 0.12,
         "HOUGH_MIN_LINE_LENGTH_RATIO": 0.04,
         "HOUGH_THRESHOLD": 35,
-        "HOUGH_MAX_LINE_GAP": 160,
+        "HOUGH_MAX_LINE_GAP_RATIO": 0.06,
         "ANGLE_TOLERANCE_DEG": 15,
         "RIGHT_ANGLE_TOLERANCE_DEG": 20,
         "MAX_RIGHT_ANGLE_DISTANCE_PX": 120,
@@ -84,13 +83,12 @@ def main():
 
     # Vorverarbeitung
     img = load_image(IMAGE_PATH)
-    img_rgb = convert_to_rgb(img)
     gray = convert_to_gray(img)
     blurred = blur_gray(gray)
     binary = threshold_otsu(blurred)
     clean = clean_binary(binary)
     edges = create_edges(clean)
-    preprocessing = build_preprocessing_result(IMAGE_PATH, img, img_rgb, gray, blurred, binary, clean, edges)
+    preprocessing = build_preprocessing_result(IMAGE_PATH, img, gray, blurred, binary, clean, edges)
 
     # Bemessung
     #coin_detection = detect_coin_by_hough(preprocessing, config)

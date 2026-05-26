@@ -257,10 +257,11 @@ def detect_coin_by_contours(preprocessing, config):
     )
 
 
-def find_hough_line_candidates(edges, min_line_length_ratio, threshold, max_line_gap):
+def find_hough_line_candidates(edges, min_line_length_ratio, threshold, max_line_gap_ratio):
     height, width = edges.shape[:2]
     diagonal = np.hypot(width, height)
     min_line_length = int(diagonal * min_line_length_ratio)
+    max_line_gap = int(diagonal * max_line_gap_ratio)
     lines = cv2.HoughLinesP(
         edges,
         rho=1,
@@ -665,7 +666,7 @@ def hough_line(preprocessing, config):
         preprocessing.edges,
         config["HOUGH_MIN_LINE_LENGTH_RATIO"],
         config["HOUGH_THRESHOLD"],
-        config["HOUGH_MAX_LINE_GAP"],
+        config["HOUGH_MAX_LINE_GAP_RATIO"],
     )
     try:
         outer_edges, edge_distance_px, extension_segments = select_outer_edges(
