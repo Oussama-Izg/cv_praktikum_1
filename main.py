@@ -23,7 +23,7 @@ from logik.vorverarbeitung import (
 )
 
 
-IMAGE_PATH = "bilder/1.jpg"
+IMAGE_PATH = "bilder/2.jpg"
 OUTPUT_DIR = Path("output")
 
 

@@ -1,2 +1,3 @@
 Länge: 120mm
 Breite: 30mm
+Größe: 5
