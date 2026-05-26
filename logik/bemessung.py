@@ -599,14 +599,14 @@ def create_line_debug_images(
         cv2.circle(all_lines_debug, (int(x), int(y)), 5, (0, 0, 255), -1)
 
     for _, _, _, (x1, y1, x2, y2) in line_candidates:
-        cv2.line(all_lines_debug, (x1, y1), (x2, y2), (255, 0, 255), 2)
+        cv2.line(all_lines_debug, (x1, y1), (x2, y2), (255, 0, 255), 5)
 
     drawn_edges = display_edges if display_edges else outer_edges
     for _, _, _, (x1, y1, x2, y2) in drawn_edges:
-        cv2.line(result_debug, (x1, y1), (x2, y2), (0, 255, 0), 3)
+        cv2.line(result_debug, (x1, y1), (x2, y2), (0, 255, 0), 8)
 
     for x1, y1, x2, y2 in extension_segments:
-        cv2.line(result_debug, (x1, y1), (x2, y2), (255, 0, 0), 4)
+        cv2.line(result_debug, (x1, y1), (x2, y2), (255, 0, 0), 10)
 
     return all_lines_debug, result_debug
 
