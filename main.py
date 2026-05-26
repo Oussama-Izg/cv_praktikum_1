@@ -1,15 +1,9 @@
 from pathlib import Path
 
-import cv2
-
-from logik.bemessung import (
-    create_debug_images,
-    detect_coin_by_contours,
-    detect_inbus_box,
-    hough_line,
-    measure_dimensions_by_contours,
-    measure_dimensions_by_hough,
-)
+from logik.debug_bemessung import create_debug_images, save_debug_output
+from logik.hough_bemessung import hough_line, measure_dimensions_by_hough
+from logik.kontur_bemessung import detect_inbus_box, measure_dimensions_by_contours
+from logik.kreis_bemessung import detect_coin_by_contours
 from logik.vorverarbeitung import (
     blur_gray,
     build_preprocessing_result,
@@ -24,11 +18,6 @@ from logik.vorverarbeitung import (
 BASE_DIR = Path(__file__).resolve().parent
 IMAGE_PATH = "bilder/2.jpg"
 OUTPUT_DIR = BASE_DIR / "output"
-
-
-def save_image(filename, image):
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    cv2.imwrite(str(OUTPUT_DIR / filename), image)
 
 
 def create_config():
@@ -59,21 +48,6 @@ def create_config():
         "SHORT_ARM_RECOVERY_ANGLE_TOLERANCE_DEG": 8,
         "SHORT_ARM_RECOVERY_OFFSET_TOLERANCE_PX": 80,
     }
-
-
-def print_vorverarbeitung(preprocessing):
-    image_name = Path(preprocessing.image_path).stem
-    save_image(f"{image_name}_vorverarbeitung.png", preprocessing.edges)
-
-
-def print_bemessung_debug(debug_images):
-    image_name = Path(IMAGE_PATH).stem
-    save_image(f"{image_name}_bemessung_debug.png", debug_images.all_lines_debug)
-
-
-def print_bemessung(debug_images):
-    image_name = Path(IMAGE_PATH).stem
-    save_image(f"{image_name}_bemessung.png", debug_images.result_debug)
 
 
 def print_hough_line_infos(line_detection, dimension_result):
@@ -124,9 +98,7 @@ def main():
     debug_images = create_debug_images(preprocessing, coin_detection, line_detection)
 
     # Ausgabe
-    print_vorverarbeitung(preprocessing)
-    print_bemessung_debug(debug_images)
-    print_bemessung(debug_images)
+    save_debug_output(OUTPUT_DIR, preprocessing, debug_images)
     print_hough_line_infos(line_detection, dimension_result)
     print_abmessungen(dimension_result)
 
