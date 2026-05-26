@@ -2,12 +2,26 @@ from pathlib import Path
 
 import cv2
 
-from logik.bemessung import measure_inbus
-from logik.vorverarbeitung import run_preprocessing
+from logik.bemessung import (
+    create_debug_images,
+    detect_coin_by_contours,
+    hough_line,
+    measure_dimensions_by_hough,
+)
+from logik.vorverarbeitung import (
+    blur_gray,
+    build_preprocessing_result,
+    clean_binary,
+    convert_to_gray,
+    create_edges,
+    load_image,
+    threshold_otsu,
+)
 
 
-IMAGE_PATHS = ["bilder/1.jpg", "bilder/2.jpg", "bilder/5.jpg"]
-OUTPUT_DIR = Path("output")
+BASE_DIR = Path(__file__).resolve().parent
+IMAGE_PATH = "bilder/1.jpg"
+OUTPUT_DIR = BASE_DIR / "output"
 
 
 def save_image(filename, image):
@@ -50,43 +64,61 @@ def print_vorverarbeitung(preprocessing):
     save_image(f"{image_name}_vorverarbeitung.png", preprocessing.edges)
 
 
-def print_bemessung_debug(result, image_path):
-    image_name = Path(image_path).stem
-    save_image(f"{image_name}_bemessung_debug.png", result.all_lines_debug)
+def print_bemessung_debug(debug_images):
+    image_name = Path(IMAGE_PATH).stem
+    save_image(f"{image_name}_bemessung_debug.png", debug_images.all_lines_debug)
 
 
-def print_bemessung(result, image_path):
-    image_name = Path(image_path).stem
-    save_image(f"{image_name}_bemessung.png", result.result_debug)
+def print_bemessung(debug_images):
+    image_name = Path(IMAGE_PATH).stem
+    save_image(f"{image_name}_bemessung.png", debug_images.result_debug)
 
 
-def print_hough_line_infos(result):
-    print(f"Gefundene Hough-Linien: {result.line_count}")
-    print(f"Angezeigte Hough-Linien: {result.line_candidate_count}")
+def print_hough_line_infos(line_detection, dimension_result):
+    line_count = 0 if line_detection.lines is None else len(line_detection.lines)
+    print(f"Gefundene Hough-Linien: {line_count}")
+    print(f"Angezeigte Hough-Linien: {len(line_detection.line_candidates)}")
 
 
-def print_abmessungen(result):
-    print(f"Laenge: {result.length_mm:.2f} mm")
-    print(f"Breite: {result.width_mm:.2f} mm")
-
-
-def measure_image(image_path, config):
-    preprocessing = run_preprocessing(image_path)
-    result = measure_inbus(preprocessing, config)
-
-    print_vorverarbeitung(preprocessing)
-    print_bemessung_debug(result, image_path)
-    print_bemessung(result, image_path)
-    print_hough_line_infos(result)
-    print_abmessungen(result)
+def print_abmessungen(dimension_result):
+    print(f"Laenge: {dimension_result.length_mm:.2f} mm")
+    print(f"Breite: {dimension_result.width_mm:.2f} mm")
 
 
 def main():
     config = create_config()
 
-    for image_path in IMAGE_PATHS:
-        print(f"\nBild: {image_path}")
-        measure_image(image_path, config)
+    print(f"\nBild: {IMAGE_PATH}")
+
+    # Vorverarbeitung
+    img = load_image(str(BASE_DIR / IMAGE_PATH))
+    gray = convert_to_gray(img)
+    blurred = blur_gray(gray)
+    binary = threshold_otsu(blurred)
+    clean = clean_binary(binary)
+    edges = create_edges(clean)
+    preprocessing = build_preprocessing_result(IMAGE_PATH, img, gray, blurred, binary, clean, edges)
+
+    # Bemessung
+    # coin_detection = detect_coin_by_hough(preprocessing, config)
+    coin_detection = detect_coin_by_contours(preprocessing, config)
+
+    # hough
+    line_detection = hough_line(preprocessing, config)
+    dimension_result = measure_dimensions_by_hough(line_detection, coin_detection, config)
+
+    # by_contours
+    # line_detection = detect_inbus_box(preprocessing, coin_detection, config)
+    # dimension_result = measure_dimensions_by_contours(preprocessing, coin_detection, config)
+
+    debug_images = create_debug_images(preprocessing, coin_detection, line_detection)
+
+    # Ausgabe
+    print_vorverarbeitung(preprocessing)
+    print_bemessung_debug(debug_images)
+    print_bemessung(debug_images)
+    print_hough_line_infos(line_detection, dimension_result)
+    print_abmessungen(dimension_result)
 
 
 if __name__ == "__main__":
