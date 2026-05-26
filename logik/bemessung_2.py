@@ -41,30 +41,47 @@ def measure_dimensions_by_minAreaRect(
     contours, _ = cv2.findContours(clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # --- Münze erkennen ---
-    coin_contour, best_circ = _finde_muenze(contours)
+    coin_contour, best_solidity = _finde_muenze(contours)
     if coin_contour is None:
         raise RuntimeError("Keine Münze gefunden!")
 
-    # Minimalen Umkreis der Münze berechnen
-    (x, y), radius = cv2.minEnclosingCircle(coin_contour)
-    x, y, radius   = int(x), int(y), int(radius)
-    pixels_per_mm    = (radius * 2) / muenz_durchmesser_mm
+    # Da das Bild schräg ist, fitten wir eine Ellipse statt eines Kreises
+    ellipse = cv2.fitEllipse(coin_contour)
+    (cx, cy), (axes1, axes2), angle = ellipse
 
-    # --- Plot 2: Münze erkennen---
+    # Die längste Achse (major axis) wird durch die Schräglage nicht gestaucht!
+    d_major = max(axes1, axes2)
+    d_minor = min(axes1, axes2)
+
+    cx, cy = int(cx), int(cy)
+    radius = int(d_major / 2)
+    pixels_per_mm = d_major / muenz_durchmesser_mm
+
+    # --- Plot 2: Münze erkennen ---
     coin_img = img_rgb.copy()
-    cv2.circle(coin_img, (x, y), radius, (0, 255, 0), 3)
-    cv2.circle(coin_img, (x, y), 4, (255, 0, 0), -1)
-    cv2.putText(coin_img, f"Circularity: {best_circ:.2f}",
-                (x - 80, y - radius - 10),
+    cv2.ellipse(coin_img, ellipse, (0, 255, 0), 3)  # Ellipse zeichnen
+    cv2.circle(coin_img, (cx, cy), 4, (255, 0, 0), -1)
+
+    # Schiefstand (Verhältnis von kurzer zu langer Achse, 1.0 = perfekter Kreis)
+    ratio = d_minor / d_major
+
+    cv2.putText(coin_img,
+                f"Solidity: {best_solidity:.2f} | Angle-Ratio: {ratio:.2f}",
+                (cx - 100, cy - radius - 20),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+
     _save_single(
         coin_img,
-        f"Münze erkannt  |  Circularity: {best_circ:.2f}  |  Radius: {radius} px",
+        f"Münze erkannt | Solidity: {best_solidity:.2f} | D_major: {d_major:.1f} px",
         os.path.join(ausgabe_ordner, "02_muenze_erkannt.png")
     )
 
+    # Ab hier läuft der Code ganz normal mit "Inbus erkennen" weiter ...
+    # (cx, cy und radius werden weiterhin für _finde_inbus verwendet)
+
     # --- Inbus erkennen ---
-    inbus_contour = _finde_inbus(contours, x, y, radius)
+    inbus_contour = _finde_inbus(contours, cx, cy,
+                                 radius)  # x, y zu cx, cy geändert
     if inbus_contour is None:
         raise RuntimeError("Kein Inbus gefunden!")
 
@@ -84,7 +101,8 @@ def measure_dimensions_by_minAreaRect(
 
     final_img = img_rgb.copy()
     cv2.drawContours(final_img, [box], 0, (0, 255, 0), 3)
-    cv2.circle(final_img, (x, y), radius, (255, 165, 0), 2)
+    cv2.circle(final_img, (cx, cy), radius, (255, 165, 0),
+               2)  # x, y zu cx, cy geändert
     cv2.putText(final_img, f"{height_mm:.1f} mm", long_mid,
                 cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2)
     cv2.putText(final_img, f"{width_mm:.1f} mm", short_mid,
@@ -97,10 +115,11 @@ def measure_dimensions_by_minAreaRect(
 
     # --- Ergebnisse speichern ---
     ergebnisse = {
-        "breite_mm":      round(width_mm, 2),
-        "laenge_mm":      round(height_mm, 2),
-        "pixels_per_mm":  round(pixels_per_mm, 4),
-        "circularity":    round(best_circ, 4),
+        "breite_mm": round(width_mm, 2),
+        "laenge_mm": round(height_mm, 2),
+        "pixels_per_mm": round(pixels_per_mm, 4),
+        "solidity": round(best_solidity, 4),
+        # best_circ zu best_solidity geändert
         "muenz_radius_px": radius,
     }
     _speichere_ergebnisse(ergebnisse, muenz_durchmesser_mm, ausgabe_ordner)
@@ -116,19 +135,29 @@ def measure_dimensions_by_minAreaRect(
 # ============================================================
 
 def _finde_muenze(contours):
-    best_coin_contour, best_circ = None, 0
+    best_coin_contour = None
+    best_solidity = 0
+
     for c in contours:
         area = cv2.contourArea(c)
-        if area < 200:
+        # fitEllipse benötigt mindestens 5 Punkte
+        if area < 200 or len(c) < 5:
             continue
-        perim = cv2.arcLength(c, True)
-        if perim == 0:
+
+        # Solidity = Konturfläche / Fläche der konvexen Hülle
+        hull = cv2.convexHull(c)
+        hull_area = cv2.contourArea(hull)
+        if hull_area == 0:
             continue
-        circularity = (4 * np.pi * area) / (perim ** 2)
-        if circularity > best_circ:
-            best_circ = circularity
+
+        solidity = area / hull_area
+
+        # Eine Ellipse ist streng konvex, Solidity liegt also sehr nahe an 1.0
+        if solidity > best_solidity:
+            best_solidity = solidity
             best_coin_contour = c
-    return best_coin_contour, best_circ
+
+    return best_coin_contour, best_solidity
 
 
 def _finde_inbus(contours, cx, cy, radius):
@@ -176,7 +205,8 @@ def _speichere_ergebnisse(e, muenz_mm, ordner):
         f.write(f"  Münzdurchmesser (real): {muenz_mm} mm\n")
         f.write(f"  Münzradius (Pixel):     {e['muenz_radius_px']} px\n")
         f.write(f"  Pixel pro mm:           {e['pixels_per_mm']} px/mm\n")
-        f.write(f"  Circularity:            {e['circularity']}\n\n")
+        # HIER WURDE CIRCULARITY DURCH SOLIDITY ERSETZT:
+        f.write(f"  Solidity:               {e['solidity']}\n\n")
         f.write(f"Inbusschlüssel:\n")
         f.write(f"  Breite:  {e['breite_mm']} mm\n")
         f.write(f"  Länge:   {e['laenge_mm']} mm\n")

@@ -4,10 +4,10 @@
 
 Kalibrierung:
   Münzdurchmesser (real): 22.25 mm
-  Münzradius (Pixel):     193 px
-  Pixel pro mm:           17.3483 px/mm
-  Circularity:            0.8957
+  Münzradius (Pixel):     101 px
+  Pixel pro mm:           9.106 px/mm
+  Solidity:               0.9943
 
 Inbusschlüssel:
-  Breite:  31.4 mm
-  Länge:   126.31 mm
+  Breite:  22.33 mm
+  Länge:   114.12 mm

@@ -23,7 +23,7 @@ from logik.vorverarbeitung import (
 from logik.bemessung_2 import measure_dimensions_by_minAreaRect
 
 
-IMAGE_PATH = "bilder/2.jpg"
+IMAGE_PATH = "bilder/5.jpg"
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR_2 = Path("output2")
 
@@ -122,7 +122,7 @@ def main(measure_method):
 
 
 if __name__ == "__main__":
-    print("############## Houghline Variante ##############")
-    main(measure_method="Houghlines")
+    #print("############## Houghline Variante ##############")
+    #main(measure_method="Houghlines")
     print("############## minAreaRect Variante ##############")
     main(measure_method="minAreaRect")
