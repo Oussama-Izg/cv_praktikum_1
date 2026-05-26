@@ -46,10 +46,10 @@ def create_config():
         "HOUGH_THRESHOLD": 35,
         "HOUGH_MAX_LINE_GAP_RATIO": 0.06,
         "ANGLE_TOLERANCE_DEG": 15,
-        "RIGHT_ANGLE_TOLERANCE_DEG": 20,
+        "RIGHT_ANGLE_TOLERANCE_DEG": 5,
         "MAX_RIGHT_ANGLE_DISTANCE_PX": 120,
-        "EXTEND_LINE_ANGLE_TOLERANCE_DEG": 15,
-        "EXTEND_LINE_DISTANCE_TOLERANCE_PX": 90,
+        "MERGE_LINE_ANGLE_TOLERANCE_DEG": 15,
+        "MERGE_LINE_DISTANCE_TOLERANCE_PX": 25,
     }
 
 
@@ -67,7 +67,7 @@ def print_bemessung(debug_images):
 
 def print_hough_line_infos(line_detection, dimension_result):
     print(f"Gefundene Hough-Linien: {0 if line_detection.lines is None else len(line_detection.lines)}")
-    print(f"Kandidaten nach Laengenfilter: {len(line_detection.line_candidates)}")
+    print(f"Linien nach Zusammenfuehrung: {len(line_detection.line_candidates)}")
     print(f"Verwendete Aussenkanten: {len(line_detection.outer_edges)}")
     print(f"Winkel zwischen den Kanten: {dimension_result.angle_difference_deg:.2f} Grad")
     print(f"Abstand zwischen den Kanten: {line_detection.edge_distance_px:.2f} px")

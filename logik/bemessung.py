@@ -389,6 +389,27 @@ def matching_line_segments(base_line, candidates, angle_tolerance_deg, distance_
     ]
 
 
+def merge_collinear_line_candidates(line_candidates, angle_tolerance_deg, distance_tolerance_px):
+    merged_lines = []
+    used_indexes = set()
+
+    for base_index, base_line in enumerate(line_candidates):
+        if base_index in used_indexes:
+            continue
+
+        matching_indexes = [
+            candidate_index
+            for candidate_index, candidate in enumerate(line_candidates)
+            if angle_distance(base_line[1], candidate[1]) <= angle_tolerance_deg
+            and abs(base_line[2] - candidate[2]) <= distance_tolerance_px
+        ]
+        used_indexes.update(matching_indexes)
+        matching_segments = [line_candidates[index] for index in matching_indexes]
+        merged_lines.append(extend_line_with_candidates(base_line, matching_segments, angle_tolerance_deg, distance_tolerance_px))
+
+    return sorted(merged_lines, reverse=True, key=lambda item: item[0])
+
+
 def line_intersection(first_points, second_points):
     x1, y1, x2, y2 = map(float, first_points)
     x3, y3, x4, y4 = map(float, second_points)
@@ -475,49 +496,61 @@ def select_outer_edges(
     line_candidates,
     right_angle_tolerance_deg,
     max_right_angle_distance_px,
-    extend_angle_tolerance_deg,
-    extend_distance_tolerance_px,
 ):
-    best_pair = None
-    best_score = None
-    best_pair_distance = None
+    intersecting_pair = None
+    intersecting_score = None
+    nearby_pair = None
+    nearby_score = None
+    nearby_distance = None
+    best_angle_pair = None
+    best_angle_score = None
+    best_angle_distance = None
 
     for i, first in enumerate(line_candidates):
         for second in line_candidates[i + 1:]:
             angle_difference = angle_distance(first[1], second[1])
             right_angle_error = abs(angle_difference - 90)
+            pair_distance = segment_distance(first[3], second[3])
+            length_sum = first[0] + second[0]
+
+            angle_score = (right_angle_error, pair_distance, -length_sum)
+            if best_angle_score is None or angle_score < best_angle_score:
+                best_angle_score = angle_score
+                best_angle_pair = (first, second)
+                best_angle_distance = pair_distance
+
             if right_angle_error > right_angle_tolerance_deg:
                 continue
 
-            pair_distance = segment_distance(first[3], second[3])
-            if pair_distance > max_right_angle_distance_px:
+            if segments_intersect(first[3], second[3]):
+                score = (right_angle_error, -length_sum)
+                if intersecting_score is None or score < intersecting_score:
+                    intersecting_score = score
+                    intersecting_pair = (first, second)
                 continue
 
-            extended_first = extend_line_with_candidates(
-                first,
-                line_candidates,
-                extend_angle_tolerance_deg,
-                extend_distance_tolerance_px,
-            )
-            extended_second = extend_line_with_candidates(
-                second,
-                line_candidates,
-                extend_angle_tolerance_deg,
-                extend_distance_tolerance_px,
-            )
-            length_sum = extended_first[0] + extended_second[0]
-            score = (right_angle_error, pair_distance, -length_sum)
-            if best_score is None or score < best_score:
-                best_score = score
-                best_pair = (extended_first, extended_second)
-                best_pair_distance = pair_distance
+            if pair_distance <= max_right_angle_distance_px:
+                score = (right_angle_error, pair_distance, -length_sum)
+                if nearby_score is None or score < nearby_score:
+                    nearby_score = score
+                    nearby_pair = (first, second)
+                    nearby_distance = pair_distance
 
-    if best_pair is None:
+    if intersecting_pair is not None:
+        selected_edges = [intersecting_pair[0], intersecting_pair[1]]
+        return selected_edges, 0.0, [], selected_edges
+
+    if nearby_pair is not None:
+        selected_edges = [nearby_pair[0], nearby_pair[1]]
+        outer_edges, extended_distance, extension_segments = extend_edges_until_they_meet(selected_edges)
+        return outer_edges, min(nearby_distance, extended_distance), extension_segments, selected_edges
+
+    if best_angle_pair is None:
         raise RuntimeError("Kein nahes Linienpaar mit ca. 90 Grad gefunden")
 
-    outer_edges = [best_pair[0], best_pair[1]]
-    outer_edges, extended_distance, extension_segments = extend_edges_until_they_meet(outer_edges)
-    return outer_edges, min(best_pair_distance, extended_distance), extension_segments
+    selected_edges = [best_angle_pair[0], best_angle_pair[1]]
+    outer_edges, extended_distance, extension_segments = extend_edges_until_they_meet(selected_edges)
+    return outer_edges, min(best_angle_distance, extended_distance), extension_segments, selected_edges
 
 
 def calculate_dimensions(outer_edges, pixels_per_mm, angle_tolerance_deg):
@@ -573,7 +606,7 @@ def create_line_debug_images(
         cv2.line(result_debug, (x1, y1), (x2, y2), (0, 255, 0), 3)
 
     for x1, y1, x2, y2 in extension_segments:
-        cv2.line(result_debug, (x1, y1), (x2, y2), (255, 255, 0), 4)
+        cv2.line(result_debug, (x1, y1), (x2, y2), (255, 0, 0), 4)
 
     return all_lines_debug, result_debug
 
@@ -662,41 +695,27 @@ def detect_coin(preprocessing, config):
 
 
 def hough_line(preprocessing, config):
-    lines, line_candidates = find_hough_line_candidates(
+    lines, raw_line_candidates = find_hough_line_candidates(
         preprocessing.edges,
         config["HOUGH_MIN_LINE_LENGTH_RATIO"],
         config["HOUGH_THRESHOLD"],
         config["HOUGH_MAX_LINE_GAP_RATIO"],
     )
+    line_candidates = merge_collinear_line_candidates(
+        raw_line_candidates,
+        config["MERGE_LINE_ANGLE_TOLERANCE_DEG"],
+        config["MERGE_LINE_DISTANCE_TOLERANCE_PX"],
+    )
     try:
-        outer_edges, edge_distance_px, extension_segments = select_outer_edges(
+        outer_edges, edge_distance_px, extension_segments, display_edges = select_outer_edges(
             line_candidates,
             config["RIGHT_ANGLE_TOLERANCE_DEG"],
             config["MAX_RIGHT_ANGLE_DISTANCE_PX"],
-            config["EXTEND_LINE_ANGLE_TOLERANCE_DEG"],
-            config["EXTEND_LINE_DISTANCE_TOLERANCE_PX"],
         )
-        display_edges = [
-            extend_line_with_candidates(
-                edge,
-                line_candidates,
-                config["EXTEND_LINE_ANGLE_TOLERANCE_DEG"],
-                config["EXTEND_LINE_DISTANCE_TOLERANCE_PX"],
-            )
-            for edge in outer_edges
-        ]
     except RuntimeError:
         selected_edges = select_fallback_outer_edges(line_candidates)
-        outer_edges = [
-            extend_line_with_candidates(
-                edge,
-                line_candidates,
-                config["EXTEND_LINE_ANGLE_TOLERANCE_DEG"],
-                config["EXTEND_LINE_DISTANCE_TOLERANCE_PX"],
-            )
-            for edge in selected_edges
-        ] if len(selected_edges) >= 2 else selected_edges
-        display_edges = outer_edges
+        display_edges = selected_edges
+        outer_edges = selected_edges
         outer_edges, edge_distance_px, extension_segments = extend_edges_until_they_meet(outer_edges)
         if len(outer_edges) < 2:
             edge_distance_px = float("nan")
