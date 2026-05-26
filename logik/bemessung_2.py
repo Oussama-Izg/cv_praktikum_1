@@ -101,8 +101,7 @@ def measure_dimensions_by_minAreaRect(
 
     final_img = img_rgb.copy()
     cv2.drawContours(final_img, [box], 0, (0, 255, 0), 3)
-    cv2.circle(final_img, (cx, cy), radius, (255, 165, 0),
-               2)  # x, y zu cx, cy geändert
+    # cv2.circle(final_img, (cx, cy), radius, (255, 165, 0), 2)  # x, y zu cx, cy geändert
     cv2.putText(final_img, f"{height_mm:.1f} mm", long_mid,
                 cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2)
     cv2.putText(final_img, f"{width_mm:.1f} mm", short_mid,
