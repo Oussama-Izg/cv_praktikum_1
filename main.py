@@ -20,10 +20,12 @@ from logik.vorverarbeitung import (
     load_image,
     threshold_otsu,
 )
+from logik.bemessung_2 import measure_dimensions_by_minAreaRect
 
 
 IMAGE_PATH = "bilder/2.jpg"
 OUTPUT_DIR = Path("output")
+OUTPUT_DIR_2 = Path("output2")
 
 
 def save_image(filename, image):
@@ -78,40 +80,49 @@ def print_abmessungen(dimension_result):
     print(f"Breite: {dimension_result.width_mm:.2f} mm")
 
 
-def main():
-    config = create_config()
+def main(measure_method):
 
-    # Vorverarbeitung
-    img = load_image(IMAGE_PATH)
-    gray = convert_to_gray(img)
-    blurred = blur_gray(gray)
-    binary = threshold_otsu(blurred)
-    clean = clean_binary(binary)
-    edges = create_edges(clean)
-    preprocessing = build_preprocessing_result(IMAGE_PATH, img, gray, blurred, binary, clean, edges)
+    if measure_method=="Houghlines":
+        config = create_config()
 
-    # Bemessung
-    #coin_detection = detect_coin_by_hough(preprocessing, config)
-    coin_detection = detect_coin_by_contours(preprocessing, config)
+        # Vorverarbeitung
+        img = load_image(IMAGE_PATH)
+        gray = convert_to_gray(img)
+        blurred = blur_gray(gray)
+        binary = threshold_otsu(blurred)
+        clean = clean_binary(binary)
+        edges = create_edges(clean)
+        preprocessing = build_preprocessing_result(IMAGE_PATH, img, gray,
+                                                   blurred, binary, clean,
+                                                   edges)
 
-    ## hough
-    line_detection = hough_line(preprocessing, config)
-    dimension_result = measure_dimensions_by_hough(line_detection, coin_detection, config)
-    
-    ## by_contours
-    #line_detection = detect_inbus_box(preprocessing, coin_detection, config)
-    #dimension_result = measure_dimensions_by_contours(preprocessing, coin_detection, config)
+        # Bemessung
+        # coin_detection = detect_coin_by_hough(preprocessing, config)
+        coin_detection = detect_coin_by_contours(preprocessing, config)
 
-    debug_images = create_debug_images(preprocessing, coin_detection, line_detection)
+        ## hough
+        line_detection = hough_line(preprocessing, config)
+        dimension_result = measure_dimensions_by_hough(line_detection,
+                                                       coin_detection, config)
 
-    # Ausgabe
-    print_vorverarbeitung(preprocessing)
-    print_bemessung_debug(debug_images)
-    print_bemessung(debug_images)
-    ## Print-Outputs
-    print_hough_line_infos(line_detection, dimension_result)
-    print_abmessungen(dimension_result)
+        debug_images = create_debug_images(preprocessing, coin_detection,
+                                           line_detection)
+
+        # Ausgabe
+        print_vorverarbeitung(preprocessing)
+        print_bemessung_debug(debug_images)
+        print_bemessung(debug_images)
+        ## Print-Outputs
+        print_hough_line_infos(line_detection, dimension_result)
+        print_abmessungen(dimension_result)
+
+
+    elif measure_method == "minAreaRect":
+        measure_dimensions_by_minAreaRect(IMAGE_PATH, 22.25, OUTPUT_DIR_2)
 
 
 if __name__ == "__main__":
-    main()
+    print("############## Houghline Variante ##############")
+    main(measure_method="Houghlines")
+    print("############## minAreaRect Variante ##############")
+    main(measure_method="minAreaRect")
