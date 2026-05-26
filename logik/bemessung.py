@@ -79,83 +79,6 @@ class DebugImages:
     result_debug: np.ndarray
 
 
-def find_hough_circles(
-    gray,
-    dp,
-    min_dist,
-    param1,
-    param2,
-    min_radius,
-    max_radius,
-):
-    hough_input = cv2.medianBlur(gray, 5)
-    circles = cv2.HoughCircles(
-        hough_input,
-        cv2.HOUGH_GRADIENT,
-        dp=dp,
-        minDist=min_dist,
-        param1=param1,
-        param2=param2,
-        minRadius=min_radius,
-        maxRadius=max_radius,
-    )
-    if circles is None:
-        raise RuntimeError("Keine Muenze per Hough-Kreis-Transformation gefunden")
-    return np.round(circles[0]).astype(int)
-
-
-def circle_edge_support(circle, edges):
-    x, y, radius = circle
-    mask = np.zeros_like(edges, dtype=np.uint8)
-    cv2.circle(mask, (x, y), radius, 255, 8)
-    return cv2.countNonZero(cv2.bitwise_and(edges, edges, mask=mask))
-
-
-def circle_edge_roundness(circle, edges, bin_count=72):
-    x, y, radius = circle
-    mask = np.zeros_like(edges, dtype=np.uint8)
-    cv2.circle(mask, (x, y), radius, 255, 8)
-    circle_edges = cv2.bitwise_and(edges, edges, mask=mask)
-    edge_y, edge_x = np.where(circle_edges > 0)
-
-    if len(edge_x) == 0:
-        return 0.0
-
-    angles = np.arctan2(edge_y - y, edge_x - x)
-    angle_bins = ((angles + np.pi) / (2 * np.pi) * bin_count).astype(int)
-    angle_bins = np.clip(angle_bins, 0, bin_count - 1)
-    occupied_bins = np.unique(angle_bins)
-    return len(occupied_bins) / bin_count
-
-
-def circle_fill_ratio(circle, clean):
-    x, y, radius = circle
-    mask = np.zeros_like(clean, dtype=np.uint8)
-    cv2.circle(mask, (x, y), radius, 255, -1)
-    filled_pixels = cv2.countNonZero(cv2.bitwise_and(clean, clean, mask=mask))
-    circle_area = np.pi * radius ** 2
-    return filled_pixels / circle_area
-
-
-def score_circles(circles, edges, clean):
-    scored = []
-    for circle in circles:
-        edge_support = circle_edge_support(circle, edges)
-        edge_roundness = circle_edge_roundness(circle, edges)
-        fill_ratio = circle_fill_ratio(circle, clean)
-        score = edge_roundness * edge_support * max(fill_ratio, 0.01)
-        scored.append(
-            CircleScore(
-                score=score,
-                edge_support=edge_support,
-                edge_roundness=edge_roundness,
-                fill_ratio=fill_ratio,
-                circle=tuple(int(value) for value in circle),
-            )
-        )
-    return sorted(scored, reverse=True, key=lambda item: item.score)
-
-
 def find_contour_coin_candidates(
     clean,
     min_area,
@@ -231,7 +154,28 @@ def find_contour_coin_candidates(
     return sorted(scored, reverse=True, key=lambda item: item.score)
 
 
-def select_coin(scored_circles, coin_diameter_mm):
+def selected_coin_scale_diameter_px(selected, coin_scale_axis):
+    scale_diameter_px = selected.scale_diameter_px
+    if selected.ellipse is None:
+        return scale_diameter_px
+
+    _, axes, _ = selected.ellipse
+    major_axis = max(axes)
+    minor_axis = min(axes)
+    scale_axis = coin_scale_axis.lower()
+
+    if scale_axis == "major":
+        return major_axis
+    if scale_axis == "minor":
+        return minor_axis
+    if scale_axis == "mean":
+        return (major_axis + minor_axis) / 2
+    if scale_axis == "geometric_mean":
+        return np.sqrt(major_axis * minor_axis)
+    return scale_diameter_px
+
+
+def select_coin(scored_circles, coin_diameter_mm, coin_scale_axis="major"):
     if not scored_circles:
         raise RuntimeError("Keine Kreis-Kandidaten gefunden")
 
@@ -239,9 +183,26 @@ def select_coin(scored_circles, coin_diameter_mm):
     coin_x, coin_y, coin_radius = selected.circle
     coin_center = (int(coin_x), int(coin_y))
     coin_radius = int(coin_radius)
-    scale_diameter_px = selected.scale_diameter_px or coin_radius * 2
+    scale_diameter_px = selected_coin_scale_diameter_px(selected, coin_scale_axis) or coin_radius * 2
     pixels_per_mm = scale_diameter_px / coin_diameter_mm
     return selected, coin_center, coin_radius, pixels_per_mm
+
+
+def build_coin_detection(method, circles, scored_circles, config):
+    selected_circle, coin_center, coin_radius, pixels_per_mm = select_coin(
+        scored_circles,
+        config["COIN_DIAMETER_MM"],
+        config.get("COIN_SCALE_AXIS", "major"),
+    )
+    return CoinDetection(
+        method=method,
+        circles=circles,
+        scored_circles=scored_circles,
+        selected_circle=selected_circle,
+        coin_center=coin_center,
+        coin_radius=coin_radius,
+        pixels_per_mm=pixels_per_mm,
+    )
 
 
 def draw_coin_candidate(debug, circle_score, color, thickness):
@@ -274,33 +235,6 @@ def create_coin_debug(img, scored_circles, selected_circle):
     return debug
 
 
-def detect_coin_by_hough(preprocessing, config):
-    min_image_dimension = min(preprocessing.gray.shape[:2])
-    circles = find_hough_circles(
-        preprocessing.gray,
-        dp=config["HOUGH_CIRCLE_DP"],
-        min_dist=int(min_image_dimension * config["HOUGH_CIRCLE_MIN_DIST_RATIO"]),
-        param1=config["HOUGH_CIRCLE_PARAM1"],
-        param2=config["HOUGH_CIRCLE_PARAM2"],
-        min_radius=int(min_image_dimension * config["HOUGH_CIRCLE_MIN_RADIUS_RATIO"]),
-        max_radius=int(min_image_dimension * config["HOUGH_CIRCLE_MAX_RADIUS_RATIO"]),
-    )
-    scored_circles = score_circles(circles, preprocessing.edges, preprocessing.clean)
-    selected_circle, coin_center, coin_radius, pixels_per_mm = select_coin(
-        scored_circles,
-        config["COIN_DIAMETER_MM"],
-    )
-    return CoinDetection(
-        method="hough",
-        circles=circles,
-        scored_circles=scored_circles,
-        selected_circle=selected_circle,
-        coin_center=coin_center,
-        coin_radius=coin_radius,
-        pixels_per_mm=pixels_per_mm,
-    )
-
-
 def detect_coin_by_contours(preprocessing, config):
     scored_circles = find_contour_coin_candidates(
         preprocessing.clean,
@@ -309,19 +243,8 @@ def detect_coin_by_contours(preprocessing, config):
         config.get("CONTOUR_COIN_MIN_ELLIPSE_FILL_RATIO", 0.55),
         config.get("CONTOUR_COIN_MAX_ELLIPSE_FILL_RATIO", 1.35),
     )
-    selected_circle, coin_center, coin_radius, pixels_per_mm = select_coin(
-        scored_circles,
-        config["COIN_DIAMETER_MM"],
-    )
-    return CoinDetection(
-        method="contour",
-        circles=np.array([circle.circle for circle in scored_circles], dtype=int),
-        scored_circles=scored_circles,
-        selected_circle=selected_circle,
-        coin_center=coin_center,
-        coin_radius=coin_radius,
-        pixels_per_mm=pixels_per_mm,
-    )
+    circles = np.array([circle.circle for circle in scored_circles], dtype=int)
+    return build_coin_detection("contour", circles, scored_circles, config)
 
 
 def find_hough_line_candidates(edges, min_line_length_ratio, threshold, max_line_gap_ratio):
@@ -342,20 +265,30 @@ def find_hough_line_candidates(edges, min_line_length_ratio, threshold, max_line
     if lines is None:
         return None, line_candidates
 
-    for line in lines[:, 0]:
-        x1, y1, x2, y2 = line
-        length = np.hypot(x2 - x1, y2 - y1)
+    for points in lines[:, 0]:
+        line_candidate = line_candidate_from_points(points)
+        length = line_candidate[0]
         if length < min_line_length:
             continue
-        angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
-        angle = ((angle + 90) % 180) - 90
-        normal_angle = np.radians(angle + 90)
-        midpoint_x = (x1 + x2) / 2
-        midpoint_y = (y1 + y2) / 2
-        offset = midpoint_x * np.cos(normal_angle) + midpoint_y * np.sin(normal_angle)
-        line_candidates.append((length, angle, offset, (x1, y1, x2, y2)))
+        line_candidates.append(line_candidate)
 
     return lines, sorted(line_candidates, reverse=True, key=lambda item: item[0])
+
+
+def normalized_line_angle(x1, y1, x2, y2):
+    angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+    return ((angle + 90) % 180) - 90
+
+
+def line_candidate_from_points(points):
+    x1, y1, x2, y2 = map(int, points)
+    length = np.hypot(x2 - x1, y2 - y1)
+    angle = normalized_line_angle(x1, y1, x2, y2)
+    normal_angle = np.radians(angle + 90)
+    midpoint_x = (x1 + x2) / 2
+    midpoint_y = (y1 + y2) / 2
+    offset = midpoint_x * np.cos(normal_angle) + midpoint_y * np.sin(normal_angle)
+    return (length, angle, offset, (x1, y1, x2, y2))
 
 
 def point_to_segment_distance(point, start, end):
@@ -594,28 +527,6 @@ def extend_edges_until_they_meet(outer_edges):
     return [first_edge, second_edge], 0.0, [first_extension, second_extension]
 
 
-def select_fallback_outer_edges(line_candidates):
-    best_pair = None
-    best_score = None
-
-    for i, first in enumerate(line_candidates):
-        for second in line_candidates[i + 1:]:
-            angle_difference = angle_distance(first[1], second[1])
-            if angle_difference < 5:
-                continue
-
-            length_sum = first[0] + second[0]
-            right_angle_error = abs(angle_difference - 90)
-            score = (right_angle_error, -length_sum)
-            if best_score is None or score < best_score:
-                best_score = score
-                best_pair = (first, second)
-
-    if best_pair is not None:
-        return list(best_pair)
-    return line_candidates[:2]
-
-
 def find_right_angle_edges(line_candidates, right_angle_tolerance_deg):
     right_angle_edges = []
     seen_lines = set()
@@ -635,33 +546,6 @@ def find_right_angle_edges(line_candidates, right_angle_tolerance_deg):
                 right_angle_edges.append(line)
 
     return right_angle_edges
-
-
-def select_best_right_angle_pair(line_candidates, right_angle_tolerance_deg):
-    if not line_candidates:
-        return []
-
-    longest_line = max(line_candidates, key=lambda item: item[0])
-    best_partner = None
-    best_score = None
-
-    for candidate in line_candidates:
-        if candidate is longest_line:
-            continue
-
-        angle_difference = angle_distance(longest_line[1], candidate[1])
-        right_angle_error = abs(angle_difference - 90)
-        if right_angle_error > right_angle_tolerance_deg:
-            continue
-
-        score = (-candidate[0], right_angle_error, segment_distance(longest_line[3], candidate[3]))
-        if best_score is None or score < best_score:
-            best_score = score
-            best_partner = candidate
-
-    if best_partner is None:
-        return []
-    return [longest_line, best_partner]
 
 
 def select_longest_right_angle_pairs(line_candidates, right_angle_tolerance_deg, pair_count):
@@ -705,55 +589,36 @@ def extend_longest_right_angle_pairs(
     longest_pair_edges = []
     longest_pair_extension_segments = []
     longest_pair_score = None
+    selected_pairs = select_longest_right_angle_pairs(line_candidates, right_angle_tolerance_deg, pair_count)
+    best_right_angle_error = min(
+        (
+            abs(angle_distance(pair[0][1], pair[1][1]) - 90)
+            for pair in selected_pairs
+        ),
+        default=None,
+    )
+    right_angle_error_margin_deg = 0.5
 
-    for pair in select_longest_right_angle_pairs(line_candidates, right_angle_tolerance_deg, pair_count):
+    for pair in selected_pairs:
         extended_edges, _, pair_extension_segments = extend_edges_until_they_meet(list(pair))
         accepted_edges = accept_limited_extensions(pair, extended_edges, max_length_ratio)
         extended_pair_score = max((edge[0] for edge in extended_edges), default=0.0)
         selected_edges.extend(accepted_edges)
         extension_segments.extend(pair_extension_segments)
+
+        right_angle_error = abs(angle_distance(pair[0][1], pair[1][1]) - 90)
+        if (
+            best_right_angle_error is not None
+            and right_angle_error > best_right_angle_error + right_angle_error_margin_deg
+        ):
+            continue
+
         if longest_pair_score is None or extended_pair_score > longest_pair_score:
             longest_pair_score = extended_pair_score
             longest_pair_edges = extended_edges
             longest_pair_extension_segments = pair_extension_segments
 
     return selected_edges, longest_pair_edges, extension_segments, longest_pair_extension_segments
-
-
-def select_outer_edges(
-    line_candidates,
-    right_angle_tolerance_deg,
-    max_right_angle_distance_px,
-):
-    best_angle_pair = None
-    best_angle_score = None
-    best_angle_distance = None
-
-    for i, first in enumerate(line_candidates):
-        for second in line_candidates[i + 1:]:
-            angle_difference = angle_distance(first[1], second[1])
-            right_angle_error = abs(angle_difference - 90)
-            pair_distance = segment_distance(first[3], second[3])
-            length_sum = first[0] + second[0]
-
-            if right_angle_error > right_angle_tolerance_deg:
-                continue
-
-            if not segments_intersect(first[3], second[3]) and pair_distance > max_right_angle_distance_px:
-                continue
-
-            score = (-length_sum, right_angle_error, pair_distance)
-            if best_angle_score is None or score < best_angle_score:
-                best_angle_score = score
-                best_angle_pair = (first, second)
-                best_angle_distance = pair_distance
-
-    if best_angle_pair is None:
-        raise RuntimeError("Kein nahes Linienpaar mit ca. 90 Grad gefunden")
-
-    selected_edges = [best_angle_pair[0], best_angle_pair[1]]
-    outer_edges, extended_distance, extension_segments = extend_edges_until_they_meet(selected_edges)
-    return outer_edges, min(best_angle_distance, extended_distance), extension_segments, selected_edges
 
 
 def perspective_corrected_vector_length(dx, dy, selected_circle):
@@ -823,143 +688,131 @@ def calculate_dimensions(outer_edges, pixels_per_mm, angle_tolerance_deg, select
     return length_mm, width_mm, angle_difference
 
 
+def corrected_length_mm_from_vector(vector, coin_detection):
+    corrected_length = perspective_corrected_vector_length(
+        vector[0],
+        vector[1],
+        coin_detection.selected_circle,
+    )
+    return corrected_length / coin_detection.pixels_per_mm
+
+
+def corrected_line_length_mm(points, coin_detection):
+    x1, y1, x2, y2 = points
+    vector = np.array([x2 - x1, y2 - y1], dtype=np.float32)
+    return corrected_length_mm_from_vector(vector, coin_detection)
+
+
+def estimate_recovered_short_arm_width(line_detection, coin_detection, config, length_mm, width_mm):
+    if not config.get("SHORT_ARM_RECOVERY_ENABLED", False):
+        return width_mm
+    if len(line_detection.outer_edges) < 2 or not line_detection.raw_line_candidates:
+        return width_mm
+    if not np.isfinite(length_mm) or length_mm <= 0 or not np.isfinite(width_mm):
+        return width_mm
+
+    min_ratio = config.get("SHORT_ARM_RECOVERY_MIN_RATIO", 0.24)
+    if width_mm / length_mm >= min_ratio:
+        return width_mm
+
+    long_edge, short_edge = sorted(
+        line_detection.outer_edges,
+        reverse=True,
+        key=lambda item: corrected_line_length_mm(item[3], coin_detection),
+    )[:2]
+    angle_tolerance_deg = config.get("SHORT_ARM_RECOVERY_ANGLE_TOLERANCE_DEG", 8)
+    offset_tolerance_px = config.get("SHORT_ARM_RECOVERY_OFFSET_TOLERANCE_PX", 80)
+    max_ratio = config.get("SHORT_ARM_RECOVERY_MAX_RATIO", 0.30)
+    max_width_mm = length_mm * max_ratio
+    min_improvement_mm = config.get("SHORT_ARM_RECOVERY_MIN_IMPROVEMENT_MM", 1.0)
+
+    long_candidates = [
+        candidate
+        for candidate in line_detection.raw_line_candidates
+        if angle_distance(candidate[1], long_edge[1]) <= angle_tolerance_deg
+        and abs(candidate[2] - long_edge[2]) <= offset_tolerance_px
+    ]
+    short_candidates = [
+        candidate
+        for candidate in line_detection.raw_line_candidates
+        if angle_distance(candidate[1], short_edge[1]) <= angle_tolerance_deg
+        and abs(candidate[2] - short_edge[2]) <= offset_tolerance_px
+    ]
+
+    recovered_width_mm = width_mm
+    for long_candidate in long_candidates:
+        for short_candidate in short_candidates:
+            intersection = line_intersection(long_candidate[3], short_candidate[3])
+            if intersection is None:
+                continue
+
+            x1, y1, x2, y2 = short_candidate[3]
+            endpoints = (
+                np.array([x1, y1], dtype=np.float32),
+                np.array([x2, y2], dtype=np.float32),
+            )
+            far_endpoint = max(endpoints, key=lambda point: np.linalg.norm(point - intersection))
+            vector = far_endpoint - intersection
+            candidate_width_mm = corrected_length_mm_from_vector(vector, coin_detection)
+
+            if candidate_width_mm <= width_mm + min_improvement_mm:
+                continue
+            if candidate_width_mm > max_width_mm:
+                continue
+            recovered_width_mm = max(recovered_width_mm, candidate_width_mm)
+
+    return recovered_width_mm
+
+
 def create_line_debug_images(
     img,
-    edges,
-    coin_center,
-    coin_radius,
-    circle_candidates,
-    selected_circle,
-    line_candidates,
-    outer_edges,
-    display_edges,
-    extension_segments,
-    right_angle_edges,
-    best_right_angle_edges,
-    longest_right_angle_edges,
-    best_extension_segments,
-    longest_extension_segments,
-    pixels_per_mm,
+    coin_detection,
+    line_detection,
 ):
     all_lines_debug = img.copy()
     result_debug = img.copy()
 
-    for circle_score in circle_candidates:
+    for circle_score in coin_detection.scored_circles:
         x, y, radius = circle_score.circle
         draw_coin_candidate(all_lines_debug, circle_score, (255, 0, 0), 2)
         cv2.circle(all_lines_debug, (int(x), int(y)), 5, (0, 0, 255), -1)
 
-    draw_coin_candidate(all_lines_debug, selected_circle, (0, 255, 255), 5)
-    cv2.circle(all_lines_debug, coin_center, 5, (0, 0, 255), -1)
-    draw_coin_candidate(result_debug, selected_circle, (0, 255, 255), 5)
+    draw_coin_candidate(all_lines_debug, coin_detection.selected_circle, (0, 255, 255), 5)
+    cv2.circle(all_lines_debug, coin_detection.coin_center, 5, (0, 0, 255), -1)
+    draw_coin_candidate(result_debug, coin_detection.selected_circle, (0, 255, 255), 5)
 
+    line_candidates = line_detection.raw_line_candidates or line_detection.line_candidates
     for _, _, _, (x1, y1, x2, y2) in line_candidates:
         cv2.line(all_lines_debug, (x1, y1), (x2, y2), (255, 0, 255), 3)
 
-    drawn_edges = display_edges if display_edges else outer_edges
+    drawn_edges = line_detection.display_edges or line_detection.outer_edges
     for _, _, _, (x1, y1, x2, y2) in drawn_edges:
         cv2.line(all_lines_debug, (x1, y1), (x2, y2), (0, 255, 0), 8)
 
-    for _, _, _, (x1, y1, x2, y2) in right_angle_edges:
+    for _, _, _, (x1, y1, x2, y2) in line_detection.right_angle_edges:
         cv2.line(all_lines_debug, (x1, y1), (x2, y2), (255, 0, 0), 10)
 
-    for _, _, _, (x1, y1, x2, y2) in best_right_angle_edges:
+    for _, _, _, (x1, y1, x2, y2) in line_detection.best_right_angle_edges:
         cv2.line(all_lines_debug, (x1, y1), (x2, y2), (0, 120, 0), 14)
 
-    for _, _, _, (x1, y1, x2, y2) in longest_right_angle_edges:
+    for _, _, _, (x1, y1, x2, y2) in line_detection.longest_right_angle_edges:
         cv2.line(all_lines_debug, (x1, y1), (x2, y2), (0, 165, 255), 18)
         cv2.line(result_debug, (x1, y1), (x2, y2), (0, 165, 255), 18)
 
-    for x1, y1, x2, y2 in best_extension_segments:
+    for x1, y1, x2, y2 in line_detection.best_extension_segments:
         cv2.line(all_lines_debug, (x1, y1), (x2, y2), (255, 255, 0), 12)
 
-    for x1, y1, x2, y2 in longest_extension_segments:
+    for x1, y1, x2, y2 in line_detection.longest_extension_segments:
         cv2.line(result_debug, (x1, y1), (x2, y2), (255, 255, 0), 12)
 
-    for x1, y1, x2, y2 in extension_segments:
+    for x1, y1, x2, y2 in line_detection.extension_segments:
         cv2.line(all_lines_debug, (x1, y1), (x2, y2), (255, 0, 0), 10)
 
     return all_lines_debug, result_debug
 
 
-def find_inbus_contour_by_largest_area(clean, coin_center, coin_radius, min_area):
-    contours, _ = cv2.findContours(
-        clean,
-        cv2.RETR_EXTERNAL,
-        cv2.CHAIN_APPROX_SIMPLE,
-    )
-
-    inbus_contour = None
-    max_area = 0
-    coin_x, coin_y = coin_center
-
-    for contour in contours:
-        area = cv2.contourArea(contour)
-        if area < min_area:
-            continue
-
-        x, y, width, height = cv2.boundingRect(contour)
-        center_x = x + width // 2
-        center_y = y + height // 2
-        distance = np.hypot(center_x - coin_x, center_y - coin_y)
-        if distance < coin_radius:
-            continue
-
-        if area > max_area:
-            max_area = area
-            inbus_contour = contour
-
-    if inbus_contour is None:
-        raise RuntimeError("Kein Inbus per Kontur gefunden")
-
-    return inbus_contour
-
-
-def box_edges_from_points(box):
-    edges = []
-    for index in range(4):
-        x1, y1 = box[index]
-        x2, y2 = box[(index + 1) % 4]
-        length = np.hypot(x2 - x1, y2 - y1)
-        angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
-        angle = ((angle + 90) % 180) - 90
-        normal_angle = np.radians(angle + 90)
-        midpoint_x = (x1 + x2) / 2
-        midpoint_y = (y1 + y2) / 2
-        offset = midpoint_x * np.cos(normal_angle) + midpoint_y * np.sin(normal_angle)
-        edges.append((length, angle, offset, (int(x1), int(y1), int(x2), int(y2))))
-    return sorted(edges, reverse=True, key=lambda item: item[0])
-
-
-def detect_inbus_box(preprocessing, coin_detection, config):
-    contour = find_inbus_contour_by_largest_area(
-        preprocessing.clean,
-        coin_detection.coin_center,
-        coin_detection.coin_radius,
-        config["CONTOUR_INBUS_MIN_AREA"],
-    )
-    rect = cv2.minAreaRect(contour)
-    _, (width, height), _ = rect
-    box = np.int32(cv2.boxPoints(rect))
-    box_edges = box_edges_from_points(box)
-    outer_edges = [box_edges[0], box_edges[2]]
-
-    line_detection = LineDetection(
-        lines=None,
-        line_candidates=box_edges,
-        outer_edges=outer_edges,
-        edge_distance_px=0.0,
-        method="contour",
-    )
-    line_detection.box_length_px = float(max(width, height))
-    line_detection.box_width_px = float(min(width, height))
-    return line_detection
-
-
 def detect_coin(preprocessing, config):
-    method = config.get("COIN_DETECTION_METHOD", "hough").lower()
-    if method == "hough":
-        return detect_coin_by_hough(preprocessing, config)
+    method = config.get("COIN_DETECTION_METHOD", "contour").lower()
     if method in ("contour", "circularity"):
         return detect_coin_by_contours(preprocessing, config)
     raise ValueError(f"Unbekannte Muenzerkennung: {method}")
@@ -1031,19 +884,17 @@ def measure_dimensions_by_hough(line_detection, coin_detection, config):
         config["ANGLE_TOLERANCE_DEG"],
         coin_detection.selected_circle,
     )
+    width_mm = estimate_recovered_short_arm_width(
+        line_detection,
+        coin_detection,
+        config,
+        length_mm,
+        width_mm,
+    )
     return DimensionResult(
         length_mm=length_mm,
         width_mm=width_mm,
         angle_difference_deg=angle_difference_deg,
-    )
-
-
-def measure_dimensions_by_contours(preprocessing, coin_detection, config):
-    line_detection = detect_inbus_box(preprocessing, coin_detection, config)
-    return DimensionResult(
-        length_mm=line_detection.box_length_px / coin_detection.pixels_per_mm,
-        width_mm=line_detection.box_width_px / coin_detection.pixels_per_mm,
-        angle_difference_deg=90.0,
     )
 
 
@@ -1055,21 +906,8 @@ def create_debug_images(preprocessing, coin_detection, line_detection):
     )
     all_lines_debug, result_debug = create_line_debug_images(
         preprocessing.img,
-        preprocessing.edges,
-        coin_detection.coin_center,
-        coin_detection.coin_radius,
-        coin_detection.scored_circles,
-        coin_detection.selected_circle,
-        line_detection.raw_line_candidates or line_detection.line_candidates,
-        line_detection.outer_edges,
-        line_detection.display_edges,
-        line_detection.extension_segments,
-        line_detection.right_angle_edges,
-        line_detection.best_right_angle_edges,
-        line_detection.longest_right_angle_edges,
-        line_detection.best_extension_segments,
-        line_detection.longest_extension_segments,
-        coin_detection.pixels_per_mm,
+        coin_detection,
+        line_detection,
     )
     return DebugImages(
         coin_debug=coin_debug,
