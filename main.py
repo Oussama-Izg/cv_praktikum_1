@@ -5,7 +5,9 @@ import cv2
 from logik.bemessung import (
     create_debug_images,
     detect_coin_by_contours,
+    detect_inbus_box,
     hough_line,
+    measure_dimensions_by_contours,
     measure_dimensions_by_hough,
 )
 from logik.vorverarbeitung import (
@@ -20,7 +22,7 @@ from logik.vorverarbeitung import (
 
 
 BASE_DIR = Path(__file__).resolve().parent
-IMAGE_PATH = "bilder/1.jpg"
+IMAGE_PATH = "bilder/2.jpg"
 OUTPUT_DIR = BASE_DIR / "output"
 
 
@@ -76,8 +78,11 @@ def print_bemessung(debug_images):
 
 def print_hough_line_infos(line_detection, dimension_result):
     line_count = 0 if line_detection.lines is None else len(line_detection.lines)
-    print(f"Gefundene Hough-Linien: {line_count}")
-    print(f"Angezeigte Hough-Linien: {len(line_detection.line_candidates)}")
+    if line_detection.method == "hough":
+        print(f"Gefundene Hough-Linien: {line_count}")
+        print(f"Angezeigte Hough-Linien: {len(line_detection.line_candidates)}")
+    else:
+        print(f"Erkannte Kontur-Kanten: {len(line_detection.line_candidates)}")
 
 
 def print_abmessungen(dimension_result):
@@ -104,12 +109,17 @@ def main():
     coin_detection = detect_coin_by_contours(preprocessing, config)
 
     # hough
-    line_detection = hough_line(preprocessing, config)
-    dimension_result = measure_dimensions_by_hough(line_detection, coin_detection, config)
+    #line_detection = hough_line(preprocessing, config)
+    #dimension_result = measure_dimensions_by_hough(line_detection, coin_detection, config)
 
     # by_contours
-    # line_detection = detect_inbus_box(preprocessing, coin_detection, config)
-    # dimension_result = measure_dimensions_by_contours(preprocessing, coin_detection, config)
+    line_detection = detect_inbus_box(preprocessing, coin_detection, config)
+    dimension_result = measure_dimensions_by_contours(
+        preprocessing,
+        coin_detection,
+        config,
+        line_detection,
+    )
 
     debug_images = create_debug_images(preprocessing, coin_detection, line_detection)
 
