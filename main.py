@@ -22,7 +22,7 @@ from logik.vorverarbeitung import (
 )
 
 
-IMAGE_PATH = "bilder/2.jpg"
+IMAGE_PATH = "bilder/1.jpg"
 OUTPUT_DIR = Path("output")
 
 
@@ -35,6 +35,9 @@ def create_config():
     return {
         "COIN_DIAMETER_MM": 22.25,
         "CONTOUR_COIN_MIN_AREA": 200,
+        "CONTOUR_COIN_MIN_AXIS_RATIO": 0.35,
+        "CONTOUR_COIN_MIN_ELLIPSE_FILL_RATIO": 0.55,
+        "CONTOUR_COIN_MAX_ELLIPSE_FILL_RATIO": 1.35,
         "CONTOUR_INBUS_MIN_AREA": 500,
         "HOUGH_CIRCLE_DP": 1.2,
         "HOUGH_CIRCLE_MIN_DIST_RATIO": 0.20,
@@ -42,14 +45,19 @@ def create_config():
         "HOUGH_CIRCLE_PARAM2": 30,
         "HOUGH_CIRCLE_MIN_RADIUS_RATIO": 0.03,
         "HOUGH_CIRCLE_MAX_RADIUS_RATIO": 0.12,
-        "HOUGH_MIN_LINE_LENGTH_RATIO": 0.04,
-        "HOUGH_THRESHOLD": 35,
-        "HOUGH_MAX_LINE_GAP_RATIO": 0.06,
+        "HOUGH_MIN_LINE_LENGTH_RATIO": 0.01,
+        "HOUGH_THRESHOLD": 10,
+        "HOUGH_MAX_LINE_GAP_RATIO": 0.01,
         "ANGLE_TOLERANCE_DEG": 15,
-        "RIGHT_ANGLE_TOLERANCE_DEG": 5,
+        "RIGHT_ANGLE_TOLERANCE_DEG": 20,
         "MAX_RIGHT_ANGLE_DISTANCE_PX": 120,
-        "MERGE_LINE_ANGLE_TOLERANCE_DEG": 15,
-        "MERGE_LINE_DISTANCE_TOLERANCE_PX": 25,
+        "MERGE_LINE_ANGLE_TOLERANCE_DEG": 5,
+        "MERGE_LINE_DISTANCE_TOLERANCE_PX": 60,
+        "MERGE_LINE_STRICT_DISTANCE_TOLERANCE_PX": 8,
+        "MERGE_LINE_MAX_OVERLAP_RATIO": 0.25,
+        "MERGED_LINE_MIN_LENGTH_RATIO": 0.05,
+        "RIGHT_ANGLE_EXTENSION_PAIR_COUNT": 3,
+        "MAX_ACCEPTED_EXTENSION_LENGTH_RATIO": 1.10,
     }
 
 
@@ -67,10 +75,7 @@ def print_bemessung(debug_images):
 
 def print_hough_line_infos(line_detection, dimension_result):
     print(f"Gefundene Hough-Linien: {0 if line_detection.lines is None else len(line_detection.lines)}")
-    print(f"Linien nach Zusammenfuehrung: {len(line_detection.line_candidates)}")
-    print(f"Verwendete Aussenkanten: {len(line_detection.outer_edges)}")
-    print(f"Winkel zwischen den Kanten: {dimension_result.angle_difference_deg:.2f} Grad")
-    print(f"Abstand zwischen den Kanten: {line_detection.edge_distance_px:.2f} px")
+    print(f"Angezeigte Hough-Linien: {len(line_detection.line_candidates)}")
 
 
 def print_abmessungen(dimension_result):
