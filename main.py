@@ -16,7 +16,7 @@ from logik.vorverarbeitung import (
 
 
 BASE_DIR = Path(__file__).resolve().parent
-IMAGE_PATH = "bilder/2.jpg"
+IMAGE_PATH = "bilder/6.jpg"
 OUTPUT_DIR = BASE_DIR / "output"
 
 
@@ -83,17 +83,12 @@ def main():
     coin_detection = detect_coin_by_contours(preprocessing, config)
 
     # hough
-    #line_detection = hough_line(preprocessing, config)
-    #dimension_result = measure_dimensions_by_hough(line_detection, coin_detection, config)
+    line_detection = hough_line(preprocessing, config)
+    dimension_result = measure_dimensions_by_hough(line_detection, coin_detection, config)
 
     # by_contours
-    line_detection = detect_inbus_box(preprocessing, coin_detection, config)
-    dimension_result = measure_dimensions_by_contours(
-        preprocessing,
-        coin_detection,
-        config,
-        line_detection,
-    )
+    #line_detection = detect_inbus_box(preprocessing, coin_detection, config)
+    #dimension_result = measure_dimensions_by_contours(preprocessing, coin_detection, config, line_detection)
 
     debug_images = create_debug_images(preprocessing, coin_detection, line_detection)
 

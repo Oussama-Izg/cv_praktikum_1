@@ -98,16 +98,16 @@ def angle_distance(first_angle, second_angle):
 
 
 def extend_line_with_candidates(base_line, candidates, angle_tolerance_deg, distance_tolerance_px):
-    matching_segments = matching_line_segments(
-        base_line,
-        candidates,
-        angle_tolerance_deg,
-        distance_tolerance_px,
-    )
+    _, base_angle, base_offset, _ = base_line
+    matching_segments = [
+        candidate
+        for candidate in candidates
+        if angle_distance(base_angle, candidate[1]) <= angle_tolerance_deg
+        and abs(base_offset - candidate[2]) <= distance_tolerance_px
+    ]
     if not matching_segments:
         matching_segments = [base_line]
 
-    _, base_angle, base_offset, _ = base_line
     direction = np.array([np.cos(np.radians(base_angle)), np.sin(np.radians(base_angle))], dtype=np.float32)
     normal = np.array([np.cos(np.radians(base_angle + 90)), np.sin(np.radians(base_angle + 90))], dtype=np.float32)
     line_point = normal * base_offset
@@ -126,16 +126,6 @@ def extend_line_with_candidates(base_line, candidates, angle_tolerance_deg, dist
     x2, y2 = np.round(end_point).astype(int)
     extended_length = np.hypot(x2 - x1, y2 - y1)
     return (extended_length, base_angle, base_offset, (x1, y1, x2, y2))
-
-
-def matching_line_segments(base_line, candidates, angle_tolerance_deg, distance_tolerance_px):
-    _, base_angle, base_offset, _ = base_line
-    return [
-        candidate
-        for candidate in candidates
-        if angle_distance(base_angle, candidate[1]) <= angle_tolerance_deg
-        and abs(base_offset - candidate[2]) <= distance_tolerance_px
-    ]
 
 
 def line_projection_interval(line, reference_angle, reference_offset):
@@ -284,27 +274,6 @@ def extend_edges_until_they_meet(outer_edges):
     return [first_edge, second_edge], 0.0, [first_extension, second_extension]
 
 
-def find_right_angle_edges(line_candidates, right_angle_tolerance_deg):
-    right_angle_edges = []
-    seen_lines = set()
-
-    for i, first in enumerate(line_candidates):
-        for second in line_candidates[i + 1:]:
-            angle_difference = angle_distance(first[1], second[1])
-            right_angle_error = abs(angle_difference - 90)
-            if right_angle_error > right_angle_tolerance_deg:
-                continue
-
-            for line in (first, second):
-                points = tuple(int(value) for value in line[3])
-                if points in seen_lines:
-                    continue
-                seen_lines.add(points)
-                right_angle_edges.append(line)
-
-    return right_angle_edges
-
-
 def select_longest_right_angle_pairs(line_candidates, right_angle_tolerance_deg, pair_count):
     right_angle_pairs = []
 
@@ -324,15 +293,10 @@ def select_longest_right_angle_pairs(line_candidates, right_angle_tolerance_deg,
 
 
 def accept_limited_extensions(original_edges, extended_edges, max_length_ratio):
-    accepted_edges = []
-
-    for original_edge, extended_edge in zip(original_edges, extended_edges):
-        if extended_edge[0] <= original_edge[0] * max_length_ratio:
-            accepted_edges.append(extended_edge)
-        else:
-            accepted_edges.append(original_edge)
-
-    return accepted_edges
+    return [
+        extended_edge if extended_edge[0] <= original_edge[0] * max_length_ratio else original_edge
+        for original_edge, extended_edge in zip(original_edges, extended_edges)
+    ]
 
 
 def extend_longest_right_angle_pairs(
@@ -400,17 +364,13 @@ def perspective_corrected_vector_length(dx, dy, selected_circle):
     return float(np.hypot(major_component, minor_component / axis_ratio))
 
 
-def perspective_corrected_line_length(points, selected_circle):
-    x1, y1, x2, y2 = points
-    return perspective_corrected_vector_length(x2 - x1, y2 - y1, selected_circle)
-
-
 def calculate_dimensions(outer_edges, pixels_per_mm, angle_tolerance_deg, selected_circle=None):
     if len(outer_edges) == 0:
         return float("nan"), float("nan"), float("nan")
     if len(outer_edges) == 1:
+        x1, y1, x2, y2 = outer_edges[0][3]
         length = (
-            perspective_corrected_line_length(outer_edges[0][3], selected_circle)
+            perspective_corrected_vector_length(x2 - x1, y2 - y1, selected_circle)
             if selected_circle is not None
             else outer_edges[0][0]
         )
@@ -418,8 +378,9 @@ def calculate_dimensions(outer_edges, pixels_per_mm, angle_tolerance_deg, select
 
     measurements = []
     for length, angle, offset, points in outer_edges:
+        x1, y1, x2, y2 = points
         corrected_length = (
-            perspective_corrected_line_length(points, selected_circle)
+            perspective_corrected_vector_length(x2 - x1, y2 - y1, selected_circle)
             if selected_circle is not None
             else length
         )
@@ -445,19 +406,14 @@ def calculate_dimensions(outer_edges, pixels_per_mm, angle_tolerance_deg, select
     return length_mm, width_mm, angle_difference
 
 
-def corrected_length_mm_from_vector(vector, coin_detection):
+def corrected_line_length_mm(points, coin_detection):
+    x1, y1, x2, y2 = points
     corrected_length = perspective_corrected_vector_length(
-        vector[0],
-        vector[1],
+        x2 - x1,
+        y2 - y1,
         coin_detection.selected_circle,
     )
     return corrected_length / coin_detection.pixels_per_mm
-
-
-def corrected_line_length_mm(points, coin_detection):
-    x1, y1, x2, y2 = points
-    vector = np.array([x2 - x1, y2 - y1], dtype=np.float32)
-    return corrected_length_mm_from_vector(vector, coin_detection)
 
 
 def estimate_recovered_short_arm_width(line_detection, coin_detection, config, length_mm, width_mm):
@@ -510,7 +466,14 @@ def estimate_recovered_short_arm_width(line_detection, coin_detection, config, l
             )
             far_endpoint = max(endpoints, key=lambda point: np.linalg.norm(point - intersection))
             vector = far_endpoint - intersection
-            candidate_width_mm = corrected_length_mm_from_vector(vector, coin_detection)
+            candidate_width_mm = (
+                perspective_corrected_vector_length(
+                    vector[0],
+                    vector[1],
+                    coin_detection.selected_circle,
+                )
+                / coin_detection.pixels_per_mm
+            )
 
             if candidate_width_mm <= width_mm + min_improvement_mm:
                 continue
@@ -540,10 +503,6 @@ def hough_line(preprocessing, config):
         preprocessing.edges.shape,
         config.get("MERGED_LINE_MIN_LENGTH_RATIO", 0.0),
     )
-    right_angle_edges = find_right_angle_edges(
-        line_candidates,
-        config["RIGHT_ANGLE_TOLERANCE_DEG"],
-    )
     (
         best_right_angle_edges,
         longest_right_angle_edges,
@@ -556,23 +515,19 @@ def hough_line(preprocessing, config):
         config.get("MAX_ACCEPTED_EXTENSION_LENGTH_RATIO", 1.10),
     )
     outer_edges = longest_right_angle_edges or best_right_angle_edges
-    extension_segments = longest_extension_segments or best_extension_segments
-    edge_distance_px = (
-        segment_distance(outer_edges[0][3], outer_edges[1][3])
-        if len(outer_edges) >= 2
-        else float("nan")
-    )
 
     return LineDetection(
         lines=lines,
         line_candidates=line_candidates,
         outer_edges=outer_edges,
-        edge_distance_px=edge_distance_px,
+        edge_distance_px=(
+            segment_distance(outer_edges[0][3], outer_edges[1][3])
+            if len(outer_edges) >= 2
+            else float("nan")
+        ),
         method="hough",
-        extension_segments=extension_segments,
         display_edges=line_candidates,
         raw_line_candidates=raw_line_candidates,
-        right_angle_edges=right_angle_edges,
         best_right_angle_edges=best_right_angle_edges,
         longest_right_angle_edges=longest_right_angle_edges,
         best_extension_segments=best_extension_segments,
