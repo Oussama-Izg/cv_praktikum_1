@@ -14,39 +14,43 @@ from logik.vorverarbeitung import (
     threshold_otsu,
 )
 
-
-BASE_DIR = Path(__file__).resolve().parent
-IMAGE_PATH = "bilder/6.jpg"
-OUTPUT_DIR = BASE_DIR / "output"
-
-
 def create_config():
     return {
+        # Generell / Muenze
         "COIN_DIAMETER_MM": 22.25,
-        "COIN_DETECTION_METHOD": "contour",
         "COIN_SCALE_AXIS": "mean",
+
+        # detect_coin_by_contours
         "CONTOUR_COIN_MIN_AREA": 200,
         "CONTOUR_COIN_MIN_AXIS_RATIO": 0.35,
         "CONTOUR_COIN_MIN_ELLIPSE_FILL_RATIO": 0.55,
         "CONTOUR_COIN_MAX_ELLIPSE_FILL_RATIO": 1.35,
+
+        # hough_line
         "HOUGH_MIN_LINE_LENGTH_RATIO": 0.01,
         "HOUGH_THRESHOLD": 10,
         "HOUGH_MAX_LINE_GAP_RATIO": 0.01,
-        "ANGLE_TOLERANCE_DEG": 15,
-        "RIGHT_ANGLE_TOLERANCE_DEG": 20,
-        "MAX_RIGHT_ANGLE_DISTANCE_PX": 120,
         "MERGE_LINE_ANGLE_TOLERANCE_DEG": 5,
         "MERGE_LINE_DISTANCE_TOLERANCE_PX": 60,
         "MERGE_LINE_STRICT_DISTANCE_TOLERANCE_PX": 8,
         "MERGE_LINE_MAX_OVERLAP_RATIO": 0.25,
         "MERGED_LINE_MIN_LENGTH_RATIO": 0.05,
+        "RIGHT_ANGLE_TOLERANCE_DEG": 20,
         "RIGHT_ANGLE_EXTENSION_PAIR_COUNT": 3,
         "MAX_ACCEPTED_EXTENSION_LENGTH_RATIO": 1.10,
+
+        # measure_dimensions_by_hough
+        "ANGLE_TOLERANCE_DEG": 15,
         "SHORT_ARM_RECOVERY_ENABLED": True,
         "SHORT_ARM_RECOVERY_MIN_RATIO": 0.24,
         "SHORT_ARM_RECOVERY_MAX_RATIO": 0.30,
         "SHORT_ARM_RECOVERY_ANGLE_TOLERANCE_DEG": 8,
         "SHORT_ARM_RECOVERY_OFFSET_TOLERANCE_PX": 80,
+        "SHORT_ARM_RECOVERY_MIN_IMPROVEMENT_MM": 1.0,
+
+        # detect_inbus_box
+        "CONTOUR_INBUS_MIN_AREA": 500,
+        "CONTOUR_INBUS_COIN_EXCLUSION_RADIUS_FACTOR": 1.0,
     }
 
 
@@ -63,20 +67,24 @@ def print_abmessungen(dimension_result):
     print(f"Laenge: {dimension_result.length_mm:.2f} mm")
     print(f"Breite: {dimension_result.width_mm:.2f} mm")
 
+IMAGE_PATH = Path("bilder/6.jpg")
+OUTPUT_DIR = Path("output")
+
 
 def main():
     config = create_config()
 
-    print(f"\nBild: {IMAGE_PATH}")
+    image_name = str(IMAGE_PATH)
+    print(f"\nBild: {image_name}")
 
     # Vorverarbeitung
-    img = load_image(str(BASE_DIR / IMAGE_PATH))
+    img = load_image(str(IMAGE_PATH))
     gray = convert_to_gray(img)
     blurred = blur_gray(gray)
     binary = threshold_otsu(blurred)
     clean = clean_binary(binary)
     edges = create_edges(clean)
-    preprocessing = build_preprocessing_result(IMAGE_PATH, img, gray, blurred, binary, clean, edges)
+    preprocessing = build_preprocessing_result(image_name, img, gray, blurred, binary, clean, edges)
 
     # Bemessung
     # coin_detection = detect_coin_by_hough(preprocessing, config)
